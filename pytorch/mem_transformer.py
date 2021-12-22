@@ -448,6 +448,7 @@ class AdaptiveEmbedding(nn.Module):
         self.cutoff_ends = [0] + self.cutoffs
 
         self.emb_layers = nn.ModuleList()
+        self.n_emb_projs = 0
         # parameter list is not supported by DataParallel
         # move all parameters from ParameterList to module attributes
         # self.emb_projs = nn.ParameterList()
@@ -457,6 +458,7 @@ class AdaptiveEmbedding(nn.Module):
             )
             if d_proj != d_embed:
                 setattr(self, 'emb_projs_0', nn.Parameter(torch.Tensor(d_proj, d_embed)))
+                self.n_emb_projs += 1
                 # self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_embed)))
         else:
             for i in range(len(self.cutoffs)):
@@ -465,6 +467,7 @@ class AdaptiveEmbedding(nn.Module):
                 self.emb_layers.append(nn.Embedding(r_idx-l_idx, d_emb_i))
                 # self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
                 setattr(self, f'emb_projs_{i}', nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
+                self.n_emb_projs += 1
             
 
     def forward(self, inp):

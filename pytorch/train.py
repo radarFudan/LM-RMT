@@ -236,10 +236,10 @@ def weights_init(m):
         if hasattr(m, 'bias') and m.bias is not None:
             init_bias(m.bias)
     elif classname.find('AdaptiveEmbedding') != -1:
-        if hasattr(m, 'emb_projs'):
-            for i in range(len(m.emb_projs)):
-                if m.emb_projs[i] is not None:
-                    nn.init.normal_(m.emb_projs[i], 0.0, args.proj_init_std)
+        if hasattr(m, 'n_emb_projs'):
+            for i in range(m.n_emb_projs):
+                if getattr(m, f'emb_projs_{i}') is not None:
+                    nn.init.normal_(getattr(m, f'emb_projs_{i}'), 0.0, args.proj_init_std)
     elif classname.find('Embedding') != -1:
         if hasattr(m, 'weight'):
             init_weight(m.weight)
@@ -248,10 +248,10 @@ def weights_init(m):
             init_weight(m.cluster_weight)
         if hasattr(m, 'cluster_bias') and m.cluster_bias is not None:
             init_bias(m.cluster_bias)
-        if hasattr(m, 'out_projs'):
-            for i in range(len(m.out_projs)):
-                if m.out_projs[i] is not None:
-                    nn.init.normal_(m.out_projs[i], 0.0, args.proj_init_std)
+        if hasattr(m, 'n_out_projs'):
+            for i in range(m.n_out_projs):
+                if getattr(m, f'out_projs_{i}') is not None:
+                    nn.init.normal_(getattr(m, f'out_projs_{i}'), 0.0, args.proj_init_std)
     elif classname.find('LayerNorm') != -1:
         if hasattr(m, 'weight'):
             nn.init.normal_(m.weight, 1.0, args.init_std)

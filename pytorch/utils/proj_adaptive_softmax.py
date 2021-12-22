@@ -31,6 +31,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             self.cluster_bias = nn.Parameter(torch.zeros(self.n_clusters))
 
         self.out_layers = nn.ModuleList()
+        self.n_out_projs = 0
         # parameter list is not supported by DataParallel
         # move all parameters from ParameterList to module attributes
         # self.out_projs = nn.ParameterList()
@@ -43,6 +44,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                 else:
                     setattr(self, f'out_projs_{i}', None)
                     # self.out_projs.append(None)
+                self.n_out_projs += 1
 
             self.out_layers.append(nn.Linear(d_embed, n_token))
         else:
@@ -52,6 +54,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
 
                 # self.out_projs.append(nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
                 setattr(self, f'out_projs_{i}', nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
+                self.n_out_projs += 1
 
                 self.out_layers.append(nn.Linear(d_emb_i, r_idx-l_idx))
 
