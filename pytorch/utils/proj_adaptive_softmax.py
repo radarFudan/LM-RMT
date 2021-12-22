@@ -42,7 +42,7 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
                     # self.out_projs.append(nn.Parameter(torch.Tensor(d_proj, d_embed)))
                 else:
                     setattr(self, f'out_projs_{i}', None)
-                    self.out_projs.append(None)
+                    # self.out_projs.append(None)
 
             self.out_layers.append(nn.Linear(d_embed, n_token))
         else:
