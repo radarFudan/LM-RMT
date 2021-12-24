@@ -144,6 +144,13 @@ parser.add_argument('--dynamic-loss-scale', action='store_true',
                     help='Use dynamic loss scaling.  If supplied, this argument'
                     ' supersedes --static-loss-scale.')
 parser.add_argument('--device_ids', nargs='+', default=None, help='Device ids for training.')
+parser.add_argument('--mem_backprop_depth', type=int, default=0, 
+                    help='How deep to pass gradient with memory tokens to past segments .')
+parser.add_argument('--mem_at_end', action='store_true',
+                    help='Whether to add mem tokens at the end of sequence.')
+parser.add_argument('--read_mem_from_cache', action='store_true',
+                    help='Mem tokens attend to their mem representations.')
+
 args = parser.parse_args()
 args.tied = not args.not_tied
 
@@ -151,8 +158,8 @@ args.tied = not args.not_tied
 if args.device_ids is not None:
     args.device_ids = [int(i) for i in args.device_ids]
     print(args.device_ids)
-# args.log_interval = 20
-# args.eval_interval = 20
+# args.log_interval = 49
+# args.eval_interval = 100
 
 if args.d_embed < 0:
     args.d_embed = args.d_model
@@ -290,7 +297,7 @@ else:
         tie_weight=args.tied, d_embed=args.d_embed, div_val=args.div_val,
         tie_projs=tie_projs, pre_lnorm=args.pre_lnorm, tgt_len=args.tgt_len,
         ext_len=args.ext_len, mem_len=args.mem_len, cutoffs=cutoffs,
-        num_mem_tokens=args.num_mem_tokens,
+        num_mem_tokens=args.num_mem_tokens, mem_at_end=args.mem_at_end, read_mem_from_cache=args.read_mem_from_cache,
         same_length=args.same_length, attn_type=args.attn_type,
         clamp_len=args.clamp_len, sample_softmax=args.sample_softmax)
     model.apply(weights_init)
@@ -415,16 +422,16 @@ def evaluate(eval_iter):
     total_len, total_loss = 0, 0.
     with torch.no_grad():
         mems = tuple()
-        if 'mem_tokens' not in globals():
-            mem_tokens = None
+        mem_tokens = model.mem_tokens
         for i, (data, target, seq_len) in enumerate(eval_iter):
             if args.max_eval_steps > 0 and i >= args.max_eval_steps:
                 break
-            ret = model(data, target, *mems, mem_tokens=mem_tokens)
-            if model.num_mem_tokens not in (0, None):
-                mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
-            else:
+            ret = model(data, target, *mems, mem_tokens=mem_tokens.detach())
+            if model.num_mem_tokens == 0:
                 loss, mems = ret[0], ret[1:]
+            else:
+                mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
+
             loss = loss.mean()
             total_loss += seq_len * loss.float().item()
             total_len += seq_len
@@ -444,33 +451,35 @@ def train():
         mems = [tuple() for _ in range(args.batch_chunk)]
     else:
         mems = tuple()
-    mem_tokens = None
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
     for batch, (data, target, seq_len) in enumerate(train_iter):
         model.zero_grad()
+        if model.mem_tokens is not None and (len(model.mem_tokens.shape) == 2):
+            model.mem_tokens = model.mem_tokens.view(model.num_mem_tokens, 1, -1).repeat(1, data.shape[1], 1)
         if args.batch_chunk > 1:
-            data_chunks = torch.chunk(data, args.batch_chunk, 1)
-            target_chunks = torch.chunk(target, args.batch_chunk, 1)
-            for i in range(args.batch_chunk):
-                data_i = data_chunks[i].contiguous()
-                target_i = target_chunks[i].contiguous()
-                ret = para_model(data_i, target_i, *mems[i], mem_tokens=mem_tokens)
-                if para_model.num_mem_tokens not in (0, None):
-                    mem_tokens, loss, mems[i] = ret[0], ret[1], ret[2:]
-                else:
-                    loss, mems[i] = ret[0], ret[1:]
-                loss = loss.float().mean().type_as(loss) / args.batch_chunk
-                if args.fp16:
-                    optimizer.backward(loss)
-                else:
-                    loss.backward()
-                train_loss += loss.float().item()
+            raise(NotImplementedError)
+            # data_chunks = torch.chunk(data, args.batch_chunk, 1)
+            # target_chunks = torch.chunk(target, args.batch_chunk, 1)
+            # for i in range(args.batch_chunk):
+            #     data_i = data_chunks[i].contiguous()
+            #     target_i = target_chunks[i].contiguous()
+            #     ret = para_model(data_i, target_i, *mems[i], mem_tokens=mem_tokens)
+            #     if para_model.num_mem_tokens not in (0, None):
+            #         mem_tokens, loss, mems[i] = ret[0], ret[1], ret[2:]
+            #     else:
+            #         loss, mems[i] = ret[0], ret[1:]
+            #     loss = loss.float().mean().type_as(loss) / args.batch_chunk
+            #     if args.fp16:
+            #         optimizer.backward(loss)
+            #     else:
+            #         loss.backward()
+            #     train_loss += loss.float().item()
         else:
-            ret = para_model(data, target, *mems, mem_tokens=mem_tokens)
-            if para_model.num_mem_tokens not in (0, None):
-                mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
-            else:
+            ret = para_model(data, target, *mems, mem_tokens=model.mem_tokens.detach())
+            if model.num_mem_tokens == 0:
                 loss, mems = ret[0], ret[1:]
+            else:
+                model.mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
             
             loss = loss.float().mean().type_as(loss)
             if args.fp16:
@@ -478,7 +487,7 @@ def train():
             else:
                 loss.backward()
             train_loss += loss.float().item()
-
+            
         if args.fp16:
             optimizer.clip_master_grads(args.clip)
         else:
@@ -589,3 +598,9 @@ else:
         test_loss, math.exp(test_loss)))
 logging('=' * 100)
 
+
+# print('mt grad', mem_tokens.grad)
+# for n,p in model.named_parameters():
+#     print(p.requires_grad, n, p.grad)
+# print('param', model.crit.out_layers[0].bias.grad)
+# print('mt', mem_tokens.std(), mem_tokens.shape)
