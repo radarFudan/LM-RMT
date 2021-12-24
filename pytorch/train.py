@@ -422,11 +422,11 @@ def evaluate(eval_iter):
     total_len, total_loss = 0, 0.
     with torch.no_grad():
         mems = tuple()
-        mem_tokens = model.mem_tokens
+        mem_tokens = model.mem_tokens.detach() if model.mem_tokens is not None else None
         for i, (data, target, seq_len) in enumerate(eval_iter):
             if args.max_eval_steps > 0 and i >= args.max_eval_steps:
                 break
-            ret = model(data, target, *mems, mem_tokens=mem_tokens.detach())
+            ret = model(data, target, *mems, mem_tokens=mem_tokens)
             if model.num_mem_tokens == 0:
                 loss, mems = ret[0], ret[1:]
             else:
@@ -475,7 +475,8 @@ def train():
             #         loss.backward()
             #     train_loss += loss.float().item()
         else:
-            ret = para_model(data, target, *mems, mem_tokens=model.mem_tokens.detach())
+            mem_tokens = model.mem_tokens.detach() if model.mem_tokens is not None else None
+            ret = para_model(data, target, *mems, mem_tokens=mem_tokens)
             if model.num_mem_tokens == 0:
                 loss, mems = ret[0], ret[1:]
             else:
