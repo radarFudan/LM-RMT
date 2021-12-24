@@ -158,8 +158,8 @@ args.tied = not args.not_tied
 if args.device_ids is not None:
     args.device_ids = [int(i) for i in args.device_ids]
     print(args.device_ids)
-args.log_interval = 49
-args.eval_interval = 100
+# args.log_interval = 49
+# args.eval_interval = 100
 
 if args.d_embed < 0:
     args.d_embed = args.d_model
