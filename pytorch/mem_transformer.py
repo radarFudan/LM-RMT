@@ -633,19 +633,14 @@ class MemTransformerLM(nn.Module):
         else:
             return None
 
-#     def init_mem_tokens(self, data):
-#         if self.mem_tokens is None:
-#             mem_tokens = [torch.randn(1, self.d_model)] * self.num_mem_tokens
-#             mem_tokens = nn.Parameter(torch.cat(mem_tokens, dim=0).repeat(1, data.shape[1], 1), requires_grad=True)
-
     def init_mem_tokens(self):
         if self.num_mem_tokens == 0:
             self.mem_tokens = None
+            self.initial_mem_tokens = None
         else:
             mem_tokens = [torch.randn(1, self.d_model)] * self.num_mem_tokens
             self.mem_tokens = torch.cat(mem_tokens, dim=0)
-#             mem_tokens = nn.Parameter(torch.cat(mem_tokens, dim=0), requires_grad=True)
-#             self.register_parameter(name='mem_tokens', param=mem_tokens)
+            self.initial_mem_tokens = self.mem_tokens
 
     def _update_mems(self, hids, mems, qlen, mlen):
         # does not deal with None
@@ -676,17 +671,10 @@ class MemTransformerLM(nn.Module):
         mlen = mems[0].size(0) if mems is not None else 0
         
         # Concat with mem_tokens
-        # if mem_tokens is not None:
-        #     word_emb = torch.cat((mem_tokens.detach(), word_emb), dim=0)
-        # elif self.num_mem_tokens not in (0, None):
-        #     mem_tokens = self.mem_tokens.reshape(self.num_mem_tokens, 1, -1).repeat(1, dec_inp.shape[1], 1)
-        #     word_emb = torch.cat((mem_tokens.detach(), word_emb), dim=0)
         if mem_tokens is not None:
-#             print(mem_tokens.shape, word_emb.shape, mem_tokens.device)
             word_emb = torch.cat((mem_tokens, word_emb), dim=0)
             if self.mem_at_end:
                 word_emb = torch.cat((word_emb, mem_tokens), dim=0)
-#             print(mem_tokens.shape, word_emb.shape, mem_tokens.device)
 
         # qlen, bsz = dec_inp.size()
         qlen = word_emb.shape[0]
@@ -701,8 +689,6 @@ class MemTransformerLM(nn.Module):
             dec_attn_mask = (torch.triu(all_ones, 1+mlen)
                     + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, None] # -1
         else:
-            # dec_attn_mask = torch.triu(
-            #     word_emb.new_ones(qlen, klen), diagonal=1+mlen).byte()[:,:,None]
             dec_attn_mask = torch.triu(
                 word_emb.new_ones(qlen, klen), diagonal=1+mlen).byte()
 
@@ -712,7 +698,6 @@ class MemTransformerLM(nn.Module):
                 if self.mem_at_end:
                     dec_attn_mask[-self.num_mem_tokens:, -self.num_mem_tokens:] = 0
                     dec_attn_mask[-self.num_mem_tokens:, :mlen] = 1 - int(self.read_mem_from_cache)
-            # print('dec attn mask\n', dec_attn_mask.shape, dec_attn_mask[:5], dec_attn_mask[-5:])
             dec_attn_mask = dec_attn_mask[:,:,None]
         
         hids = []
@@ -796,6 +781,8 @@ class MemTransformerLM(nn.Module):
         # Moreover, have to return new_mems to allow nn.DataParallel to piece
         # them together.
         if not mems: mems = self.init_mems(data.device)
+        
+#         mem_tokens = self.mem_tokens.to(device=data.device)
         if mem_tokens is None and self.num_mem_tokens > 0:
             self.init_mem_tokens(data)
 

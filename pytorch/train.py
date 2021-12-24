@@ -158,8 +158,8 @@ args.tied = not args.not_tied
 if args.device_ids is not None:
     args.device_ids = [int(i) for i in args.device_ids]
     print(args.device_ids)
-# args.log_interval = 49
-# args.eval_interval = 100
+args.log_interval = 49
+args.eval_interval = 100
 
 if args.d_embed < 0:
     args.d_embed = args.d_model
@@ -422,10 +422,16 @@ def evaluate(eval_iter):
     total_len, total_loss = 0, 0.
     with torch.no_grad():
         mems = tuple()
-        mem_tokens = model.mem_tokens.detach() if model.mem_tokens is not None else None
+        mem_tokens = model.initial_mem_tokens.detach() if model.initial_mem_tokens is not None else None
         for i, (data, target, seq_len) in enumerate(eval_iter):
             if args.max_eval_steps > 0 and i >= args.max_eval_steps:
                 break
+                
+            if mem_tokens is not None:
+                if len(mem_tokens.shape) == 2:
+                    mem_tokens = model.initial_mem_tokens.view(model.num_mem_tokens, 1, -1).repeat(1, data.shape[1], 1)
+                mem_tokens = mem_tokens.to(device=data.device)
+                
             ret = model(data, target, *mems, mem_tokens=mem_tokens)
             if model.num_mem_tokens == 0:
                 loss, mems = ret[0], ret[1:]
