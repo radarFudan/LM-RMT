@@ -150,6 +150,10 @@ parser.add_argument('--mem_at_end', action='store_true',
                     help='Whether to add mem tokens at the end of sequence.')
 parser.add_argument('--read_mem_from_cache', action='store_true',
                     help='Mem tokens attend to their mem representations.')
+parser.add_argument('--log_interval', type=int, default=200,
+                    help='Log period in batches')
+parser.add_argument('--eval_interval', type=int, default=8000,
+                    help='Evaluation period in batches')
 
 args = parser.parse_args()
 args.tied = not args.not_tied
@@ -295,7 +299,7 @@ else:
         tie_weight=args.tied, d_embed=args.d_embed, div_val=args.div_val,
         tie_projs=tie_projs, pre_lnorm=args.pre_lnorm, tgt_len=args.tgt_len,
         ext_len=args.ext_len, mem_len=args.mem_len, cutoffs=cutoffs,
-        num_mem_tokens=args.num_mem_tokens, mem_at_end=args.mem_at_end, read_mem_from_cache=args.read_mem_from_cache,
+        num_mem_tokens=args.num_mem_tokens, mem_at_end=args.mem_at_end, read_mem_from_cache=args.read_mem_from_cache, 
         same_length=args.same_length, attn_type=args.attn_type,
         clamp_len=args.clamp_len, sample_softmax=args.sample_softmax)
     model.apply(weights_init)
@@ -418,18 +422,15 @@ def evaluate(eval_iter):
 
     # Evaluation
     total_len, total_loss = 0, 0.
+    mem_tokens = None
     with torch.no_grad():
-        mems = tuple()
-        mem_tokens = model.initial_mem_tokens.detach() if model.initial_mem_tokens is not None else None
+        mems = tuple()  
         for i, (data, target, seq_len) in enumerate(eval_iter):
             if args.max_eval_steps > 0 and i >= args.max_eval_steps:
                 break
-                
-            if mem_tokens is not None:
-                if len(mem_tokens.shape) == 2:
-                    mem_tokens = model.initial_mem_tokens.view(model.num_mem_tokens, 1, -1).repeat(1, data.shape[1], 1)
-                mem_tokens = mem_tokens.to(device=data.device)
-                
+            if (mem_tokens is None) and (model.mem_tokens is not None):
+                mem_tokens = model.mem_tokens.repeat(1, data.shape[1], 1)
+
             ret = model(data, target, *mems, mem_tokens=mem_tokens)
             if model.num_mem_tokens == 0:
                 loss, mems = ret[0], ret[1:]
@@ -456,10 +457,14 @@ def train():
     else:
         mems = tuple()
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
+    mem_tokens = None
     for batch, (data, target, seq_len) in enumerate(train_iter):
         model.zero_grad()
-        if model.mem_tokens is not None and (len(model.mem_tokens.shape) == 2):
-            model.mem_tokens = model.mem_tokens.view(model.num_mem_tokens, 1, -1).repeat(1, data.shape[1], 1)
+        if mem_tokens is not None:
+            mem_tokens = mem_tokens.detach()
+        elif model.mem_tokens is not None:
+            mem_tokens = model.mem_tokens.repeat(1, data.shape[1], 1)
+         
         if args.batch_chunk > 1:
             raise(NotImplementedError)
             # data_chunks = torch.chunk(data, args.batch_chunk, 1)
@@ -479,13 +484,11 @@ def train():
             #         loss.backward()
             #     train_loss += loss.float().item()
         else:
-            mem_tokens = model.mem_tokens.detach() if model.mem_tokens is not None else None
             ret = para_model(data, target, *mems, mem_tokens=mem_tokens)
             if model.num_mem_tokens == 0:
                 loss, mems = ret[0], ret[1:]
             else:
-                model.mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
-            
+                mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
             loss = loss.float().mean().type_as(loss)
             if args.fp16:
                 optimizer.backward(loss)
@@ -501,7 +504,7 @@ def train():
         optimizer.step()
         if args.sample_softmax > 0:
             optimizer_sparse.step()
-
+        
         # step-wise learning rate annealing
         train_step += 1
         if args.scheduler in ['cosine', 'constant', 'dev_perf']:
@@ -602,10 +605,3 @@ else:
     logging('| End of training | test loss {:5.2f} | test ppl {:9.3f}'.format(
         test_loss, math.exp(test_loss)))
 logging('=' * 100)
-
-
-# print('mt grad', mem_tokens.grad)
-# for n,p in model.named_parameters():
-#     print(p.requires_grad, n, p.grad)
-# print('param', model.crit.out_layers[0].bias.grad)
-# print('mt', mem_tokens.std(), mem_tokens.shape)

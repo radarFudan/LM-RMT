@@ -532,7 +532,6 @@ class MemTransformerLM(nn.Module):
         self.ext_len = ext_len
         self.num_mem_tokens = num_mem_tokens
         self.init_mem_tokens()
-#         self.register_parameter(name='mem_tokens', param=None)
         self.read_mem_from_cache = read_mem_from_cache
         self.mem_at_end = mem_at_end
 
@@ -636,11 +635,11 @@ class MemTransformerLM(nn.Module):
     def init_mem_tokens(self):
         if self.num_mem_tokens == 0:
             self.mem_tokens = None
-            self.initial_mem_tokens = None
         else:
             mem_tokens = [torch.randn(1, self.d_model)] * self.num_mem_tokens
-            self.mem_tokens = torch.cat(mem_tokens, dim=0)
-            self.initial_mem_tokens = self.mem_tokens
+            mem_tokens = torch.cat(mem_tokens, dim=0).view(self.num_mem_tokens, 1, -1)
+            mem_tokens = torch.nn.Parameter(mem_tokens, requires_grad=True)
+            self.register_parameter(param=mem_tokens, name='mem_tokens')
 
     def _update_mems(self, hids, mems, qlen, mlen):
         # does not deal with None
@@ -781,10 +780,6 @@ class MemTransformerLM(nn.Module):
         # Moreover, have to return new_mems to allow nn.DataParallel to piece
         # them together.
         if not mems: mems = self.init_mems(data.device)
-        
-#         mem_tokens = self.mem_tokens.to(device=data.device)
-        if mem_tokens is None and self.num_mem_tokens > 0:
-            self.init_mem_tokens(data)
 
         tgt_len = target.size(0)
         hidden, new_mems = self._forward(data, mems=mems, mem_tokens=mem_tokens)
@@ -871,4 +866,3 @@ if __name__ == '__main__':
                 print('batch {}'.format(idx))
                 out = model(inp, tgt, *mems)
                 mems = out[1:]
-
