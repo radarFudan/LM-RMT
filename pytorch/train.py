@@ -146,6 +146,8 @@ parser.add_argument('--dynamic-loss-scale', action='store_true',
 parser.add_argument('--device_ids', nargs='+', default=None, help='Device ids for training.')
 parser.add_argument('--mem_backprop_depth', type=int, default=0, 
                     help='How deep to pass gradient with memory tokens to past segments .')
+parser.add_argument('--bptt_bp', action='store_true',
+                    help='Backpropagate at each timestep during BPTT.')
 parser.add_argument('--mem_at_end', action='store_true',
                     help='Whether to add mem tokens at the end of sequence.')
 parser.add_argument('--read_mem_from_cache', action='store_true',
@@ -458,6 +460,7 @@ def train():
         mems = tuple()
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
     mem_tokens = None
+    prev_data, prev_target, prev_mems, prev_mem_tokens = [], [], [], []
     for batch, (data, target, seq_len) in enumerate(train_iter):
         model.zero_grad()
         if mem_tokens is not None:
@@ -484,6 +487,22 @@ def train():
             #         loss.backward()
             #     train_loss += loss.float().item()
         else:
+            if args.mem_backprop_depth > 0:
+                prev_data = prev_data[-args.mem_backprop_depth:] + [data]
+                prev_target = prev_target[-args.mem_backprop_depth:] + [target]
+                prev_mems = prev_mems[-args.mem_backprop_depth:] + [mems]
+                prev_mem_tokens = prev_mem_tokens[-args.mem_backprop_depth:] + [mem_tokens.detach()]
+                mem_tokens.values = prev_mem_tokens[0].clone()
+                for pd, pt, pm in zip(prev_data[:-1], prev_target[:-1], prev_mems[:-1]):
+                    ret = para_model(pd, pt, *pm, mem_tokens=mem_tokens)
+                    mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
+                    if args.bptt_bp:
+                        loss = loss.float().mean().type_as(loss)
+                        if args.fp16:
+                            raise(NotImplementedError)
+                        else:
+                            loss.backward(retain_graph=True)
+                    
             ret = para_model(data, target, *mems, mem_tokens=mem_tokens)
             if model.num_mem_tokens == 0:
                 loss, mems = ret[0], ret[1:]
