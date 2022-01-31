@@ -20,8 +20,8 @@ from utils.data_parallel import BalancedDataParallel
 parser = argparse.ArgumentParser(description='PyTorch Transformer Language Model')
 parser.add_argument('--data', type=str, default='../data/wikitext-103',
                     help='location of the data corpus')
-parser.add_argument('--dataset', type=str, default='wt103',
-                    choices=['wt103', 'lm1b', 'enwik8', 'text8', 'reverse'],
+parser.add_argument('--dataset', type=str, default='reverse',
+                    choices=['reverse', 'copy', 'retrieval', 'retrieval59', 'retrieval59_ext', 'retrieval29_ext'],
                     help='dataset name')
 parser.add_argument('--n_layer', type=int, default=12,
                     help='number of total layers')
@@ -207,7 +207,7 @@ if args.cuda:
 ###############################################################################
 # Load data
 ###############################################################################
-if args.dataset in {'reverse'}:
+if args.dataset in {'reverse', 'copy', 'retrieval', 'retrieval59', 'retrieval59_ext', 'retrieval29_ext'}:
     tr_iter = data_loader('train', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
                                         tgt_len=args.tgt_len, device=device)
     va_iter = data_loader('val', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
@@ -669,7 +669,7 @@ def train():
                             mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
                         if args.bptt_bp:
                             raise(NotImplementedError)
-
+                
                 ret = para_model(data, target, *mems, mem_tokens=mem_tokens)
                 if model.num_mem_tokens == 0:
                     loss, mems = ret[0], ret[1:]

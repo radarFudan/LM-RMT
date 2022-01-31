@@ -1,35 +1,35 @@
-# from remote.retrieval import *
+from .retrieval import *
 # from remote.listops import *
 import numpy as np
 import torch
 
 
-# def generate_data(generator, task_name, path='data', train_size=10_000, val_size=1_000, test_size=2_000, batch_size=32):
-#     Xs, ys = [], []
-#     total_size = train_size + test_size + val_size
-#     num_batches = total_size // batch_size * 3
-#     for _ in range(num_batches):
-#         X, y, _, _ = next(generator)
-#         Xs.append(X)
-#         ys.append(y)
+def generate_data(generator, task_name, path='data', train_size=10_000, val_size=1_000, test_size=2_000, batch_size=32):
+    Xs, ys = [], []
+    total_size = train_size + test_size + val_size
+    num_batches = total_size // batch_size * 3
+    for _ in range(num_batches):
+        X, y, _, _ = next(generator)
+        Xs.append(X)
+        ys.append(y)
 
-#     Xs = torch.vstack(Xs)
-#     ys = torch.vstack(ys)
+    Xs = torch.vstack(Xs)
+    ys = torch.vstack(ys)
     
-#     _, inds = np.unique(Xs, axis=0, return_index=True)
-#     inds = np.random.permutation(inds)
+    _, inds = np.unique(Xs, axis=0, return_index=True)
+    inds = np.random.permutation(inds)
     
-#     Xs = Xs[inds][:total_size]
-#     ys = ys[inds][:total_size]
+    Xs = Xs[inds][:total_size]
+    ys = ys[inds][:total_size]
     
-#     np.save(f'{path}/{task_name}_train_X.npy', Xs[:train_size].cpu())
-#     np.save(f'{path}/{task_name}_train_y.npy', ys[:train_size].cpu())
+    np.save(f'{path}/{task_name}_train_X.npy', Xs[:train_size].cpu())
+    np.save(f'{path}/{task_name}_train_y.npy', ys[:train_size].cpu())
 
-#     np.save(f'{path}/{task_name}_val_X.npy', Xs[train_size:train_size+val_size].cpu())
-#     np.save(f'{path}/{task_name}_val_y.npy', ys[train_size:train_size+val_size].cpu())
+    np.save(f'{path}/{task_name}_val_X.npy', Xs[train_size:train_size+val_size].cpu())
+    np.save(f'{path}/{task_name}_val_y.npy', ys[train_size:train_size+val_size].cpu())
 
-#     np.save(f'{path}/{task_name}_test_X.npy', Xs[train_size+val_size:train_size+val_size+test_size].cpu())
-#     np.save(f'{path}/{task_name}_test_y.npy', ys[train_size+val_size:train_size+val_size+test_size].cpu())
+    np.save(f'{path}/{task_name}_test_X.npy', Xs[train_size+val_size:train_size+val_size+test_size].cpu())
+    np.save(f'{path}/{task_name}_test_y.npy', ys[train_size+val_size:train_size+val_size+test_size].cpu())
 
 
 class data_loader:
@@ -63,69 +63,72 @@ class data_loader:
             yield src.T, tgt.T, self.tgt_len
         
     
-# class copy_generator:
-#     def __init__(self, batch_size, enc_seq_len, dec_seq_len, num_tokens):
-#         self.src_mask = torch.ones(batch_size, enc_seq_len).bool().cuda()
-#         self.tgt_mask = torch.ones(batch_size, dec_seq_len+1).bool().cuda()
+class copy_generator:
+    def __init__(self, batch_size, enc_seq_len, dec_seq_len, num_tokens):
+        self.src_mask = torch.ones(batch_size, enc_seq_len).bool().cuda()
+        self.tgt_mask = torch.ones(batch_size, dec_seq_len+1).bool().cuda()
     
-#         self.batch_size = batch_size
-#         self.enc_seq_len = enc_seq_len
-#         self.dec_seq_len = dec_seq_len
-#         self.num_tokens = num_tokens
+        self.batch_size = batch_size
+        self.enc_seq_len = enc_seq_len
+        self.dec_seq_len = dec_seq_len
+        self.num_tokens = num_tokens
 
-#     def __next__(self):
-#         X = np.zeros([self.batch_size, self.enc_seq_len]).astype(int)
-#         y = np.zeros([self.batch_size, self.dec_seq_len+1]).astype(int)
-#         y[:, 0] = 1
-#         for i in range(self.batch_size):
-#             sequence_length = self.enc_seq_len
-#             random_sequence = np.random.randint(2, self.num_tokens, sequence_length)
+    def __next__(self):
+        X = np.zeros([self.batch_size, self.enc_seq_len]).astype(int)
+        y = np.zeros([self.batch_size, self.dec_seq_len+1]).astype(int)
+        y[:, 0] = 1
+        for i in range(self.batch_size):
+            sequence_length = self.enc_seq_len
+            random_sequence = np.random.randint(2, self.num_tokens, sequence_length)
             
-#             X[i, :sequence_length] = random_sequence
-#             y[i, 1: 2 * sequence_length + 1] = np.concatenate([random_sequence] * 2)
+            X[i, :sequence_length] = random_sequence
+            y[i, 1: 2 * sequence_length + 1] = np.concatenate([random_sequence] * 2)
 
-#         return torch.tensor(X), torch.tensor(y), self.src_mask, self.tgt_mask        
+        return torch.tensor(X), torch.tensor(y), self.src_mask, self.tgt_mask        
 
 
-# class reverse_generator:
-#     def __init__(self, batch_size, enc_seq_len, dec_seq_len, num_tokens):
-#         self.src_mask = torch.ones(batch_size, enc_seq_len).bool().cuda()
-#         self.tgt_mask = torch.ones(batch_size, dec_seq_len+1).bool().cuda()
+class reverse_generator:
+    def __init__(self, batch_size, enc_seq_len, dec_seq_len, num_tokens):
+        self.src_mask = torch.ones(batch_size, enc_seq_len).bool().cuda()
+        self.tgt_mask = torch.ones(batch_size, dec_seq_len+1).bool().cuda()
         
-#         self.batch_size = batch_size
-#         self.enc_seq_len = enc_seq_len
-#         self.dec_seq_len = dec_seq_len
-#         self.num_tokens = num_tokens
+        self.batch_size = batch_size
+        self.enc_seq_len = enc_seq_len
+        self.dec_seq_len = dec_seq_len
+        self.num_tokens = num_tokens
     
-#     def __next__(self):
-#         X = np.zeros([self.batch_size, self.enc_seq_len]).astype(int)
-#         y = np.zeros([self.batch_size, self.dec_seq_len+1]).astype(int)
-#         y[:, 0] = 1
-#         for i in range(self.batch_size):
-#             sequence_length = self.enc_seq_len
-#             random_sequence = np.random.randint(2, self.num_tokens, sequence_length)
+    def __next__(self):
+        X = np.zeros([self.batch_size, self.enc_seq_len]).astype(int)
+        y = np.zeros([self.batch_size, self.dec_seq_len+1]).astype(int)
+        y[:, 0] = 1
+        for i in range(self.batch_size):
+            sequence_length = self.enc_seq_len
+            random_sequence = np.random.randint(2, self.num_tokens, sequence_length)
             
-#             X[i, :sequence_length] = random_sequence
-#             y[i, 1:sequence_length + 1] = random_sequence[::-1]
+            X[i, :sequence_length] = random_sequence
+            y[i, 1:sequence_length + 1] = random_sequence[::-1]
 
 
-#         return torch.tensor(X), torch.tensor(y), self.src_mask, self.tgt_mask        
+        return torch.tensor(X), torch.tensor(y), self.src_mask, self.tgt_mask        
 
 
-# class retrieval_generator:
-#     def __init__(self):
-#         self.src_mask = torch.ones(BATCH_SIZE, enc_seq_len).bool()
-#         self.tgt_mask = torch.ones(BATCH_SIZE, dec_seq_len+1).bool()
+class retrieval_generator:
+    def __init__(self, K=4, num_tokens=10, batch_size=128):
+        self.src_mask = torch.ones(batch_size, 2*K+1).bool()
+        self.tgt_mask = torch.ones(batch_size, 1+1).bool()
+        self.K = K
+        self.batch_size = batch_size
+        self.N = num_tokens
     
-#     def __next__(self):
-#         X = np.zeros([BATCH_SIZE, enc_seq_len]).astype(int)
-#         y = np.zeros([BATCH_SIZE, dec_seq_len+1]).astype(int)
-#         y[:, 0] = 10
-#         for i in range(BATCH_SIZE):
-#             X[i], y[i, 1:] = create_sequence(one_hot=False)
+    def __next__(self):
+        X = np.zeros([self.batch_size, 2*self.K+1]).astype(int)
+        y = np.zeros([self.batch_size, 1+1]).astype(int)
+        y[:, 0] = 10
+        for i in range(self.batch_size):
+            X[i], y[i, 1:] = create_sequence(one_hot=False, K=self.K)
 
 
-#         return torch.tensor(X), torch.tensor(y), self.src_mask, self.tgt_mask         
+        return torch.tensor(X), torch.tensor(y), self.src_mask, self.tgt_mask         
 
 
 # class listops_generator:

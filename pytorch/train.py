@@ -502,7 +502,8 @@ def train():
                             raise(NotImplementedError)
                         else:
                             loss.backward(retain_graph=True)
-                    
+            
+            print(para_model.module.layers[0].dec_attn.qkv_net.weight)
             ret = para_model(data, target, *mems, mem_tokens=mem_tokens)
             if model.num_mem_tokens == 0:
                 loss, mems = ret[0], ret[1:]
