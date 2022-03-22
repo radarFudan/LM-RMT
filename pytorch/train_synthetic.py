@@ -17,11 +17,13 @@ from mem_transformer import MemTransformerLM
 from utils.exp_utils import create_exp_dir
 from utils.data_parallel import BalancedDataParallel
 
+datasets = ['reverse', 'copy', 'retrieval', 'retrieval59', 'retrieval59_ext', 'retrieval29_ext', 'copy120', 'reverse120']
+
 parser = argparse.ArgumentParser(description='PyTorch Transformer Language Model')
 parser.add_argument('--data', type=str, default='../data/wikitext-103',
                     help='location of the data corpus')
 parser.add_argument('--dataset', type=str, default='reverse',
-                    choices=['reverse', 'copy', 'retrieval', 'retrieval59', 'retrieval59_ext', 'retrieval29_ext'],
+                    choices=datasets,
                     help='dataset name')
 parser.add_argument('--n_layer', type=int, default=12,
                     help='number of total layers')
@@ -207,25 +209,15 @@ if args.cuda:
 ###############################################################################
 # Load data
 ###############################################################################
-if args.dataset in {'reverse', 'copy', 'retrieval', 'retrieval59', 'retrieval59_ext', 'retrieval29_ext'}:
-    tr_iter = data_loader('train', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
-                                        tgt_len=args.tgt_len, device=device)
-    va_iter = data_loader('val', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
-                                        tgt_len=args.tgt_len, device=device)
-    te_iter = data_loader('test', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
-                                        tgt_len=args.tgt_len, device=device)    
-    ntokens = args.ntokens = (tr_iter.src.max() + 1).item()
-# corpus = get_lm_corpus(args.data, args.dataset)
-# ntokens = len(corpus.vocab)
-# args.n_token = ntokens
-
-# eval_batch_size = 10
-# tr_iter = corpus.get_iterator('train', args.batch_size, args.tgt_len,
-#     device=device, ext_len=args.ext_len)
-# va_iter = corpus.get_iterator('valid', eval_batch_size, args.eval_tgt_len,
-#     device=device, ext_len=args.ext_len)
-# te_iter = corpus.get_iterator('test', eval_batch_size, args.eval_tgt_len,
-#     device=device, ext_len=args.ext_len)
+# if args.dataset in {'reverse', 'copy', 'retrieval', 'retrieval59', 'retrieval59_ext', 'retrieval29_ext'}:
+stack = False if args.dataset in {'sqeq'} else True
+tr_iter = data_loader('train', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
+                                    tgt_len=args.tgt_len, device=device, stack=stack)
+va_iter = data_loader('val', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
+                                    tgt_len=args.tgt_len, device=device, stack=stack)
+te_iter = data_loader('test', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
+                                    tgt_len=args.tgt_len, device=device, stack=stack)
+ntokens = args.ntokens = (tr_iter.src.max() + 1).item()
 
 # # adaptive softmax / embedding
 cutoffs, tie_projs = [], [False]
