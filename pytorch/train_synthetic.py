@@ -210,13 +210,12 @@ if args.cuda:
 # Load data
 ###############################################################################
 # if args.dataset in {'reverse', 'copy', 'retrieval', 'retrieval59', 'retrieval59_ext', 'retrieval29_ext'}:
-stack = False if args.dataset in {'sqeq'} else True
 tr_iter = data_loader('train', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
-                                    tgt_len=args.tgt_len, device=device, stack=stack)
+                                    tgt_len=args.tgt_len, device=device)
 va_iter = data_loader('val', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
-                                    tgt_len=args.tgt_len, device=device, stack=stack)
+                                    tgt_len=args.tgt_len, device=device)
 te_iter = data_loader('test', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
-                                    tgt_len=args.tgt_len, device=device, stack=stack)
+                                    tgt_len=args.tgt_len, device=device)
 ntokens = args.ntokens = (tr_iter.src.max() + 1).item()
 
 # # adaptive softmax / embedding
