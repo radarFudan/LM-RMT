@@ -1,6 +1,6 @@
 # Recurrent Memory Transformer
 
-# Code. 
+## Code 
 
 Scripts for running language modeling, algorithmic and mathematical experiments are located in pytorch/ folder.
 
@@ -12,13 +12,17 @@ All experiments results were produced with this repo and we will be publicly ava
 Raw experiments results:
 
 Results for all experiments are in experiment_results/ folder:
+
     - short_synthetic+MT.csv -- experiments with copy/reverse/associative retrieval from figure 4.
-    - long_copy_reverse.csv -- results for sequence length up to 1080 for copy/revers, figure 5a, 5b and 7c.
+
+    - long_copy_reverse.csv -- results for sequence length up to 1080 for copy/reverse, figure 5a, 5b and 7c.
+    
     - results_wt103_enwik8_all_parameters.csv -- full set of hyperparameters for enwik8/wt103 runs.
-    - results_wt103_enwik8.csv -- enwik8/wt103 with selected subset of hyperparameters
+
+    - results_wt103_enwik8.csv -- enwik8/wt103 with selected subset of hyperparameters.
 
 
-# Data.
+## Data
 
 To obtain datasets used in the paper:
 

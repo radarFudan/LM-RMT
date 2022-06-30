@@ -3,7 +3,7 @@
 if [[ $1 == 'train' ]]; then
     echo 'Run training...'
     python3 train_sqeq.py \
-        --data ../../data/sqeq \
+        --data ../../../TXL/data/sqeq \
         --dataset sqeq_cd \
         --n_layer 6 \
         --d_model 128 \
@@ -37,23 +37,6 @@ if [[ $1 == 'train' ]]; then
         --multi_gpu\
         --device_ids 0 1\
         --work_dir ../evaluation/noname \
-        ${@:2}
-elif [[ $1 == 'eval' ]]; then
-    echo 'Run evaluation...'
-    python3 eval_sqeq.py \
-        --cuda \
-        --data ../../data/sqeq \
-        --dataset sqeq_cd \
-        --tgt_len 180 \
-        --mem_len 0 \
-        --clamp_len 0 \
-        --split all \
-        --mem_backprop_depth 0 \
-        --mem_at_end \
-        --read_mem_from_cache \
-        --answer_size 150 \
-        --max_eval_steps 50 \
-        --device_ids 0 \
         ${@:2}
 else
     echo 'unknown argment 1'

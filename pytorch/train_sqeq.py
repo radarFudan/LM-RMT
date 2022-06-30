@@ -11,7 +11,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-# from data_utils import get_lm_corpus
 from experiment_utils.generate_data import data_loader
 from mem_transformer import MemTransformerLM
 from utils.exp_utils import create_exp_dir
@@ -161,8 +160,6 @@ parser.add_argument('--eval_interval', type=int, default=8000,
                     help='Evaluation period in batches')
 parser.add_argument('--answer_size', type=int, default=24,
                     help='How many last tokens in segment to use for loss.')
-# parser.add_argument('--sliding_window', action='store_true',
-#                     help='Process data with sliding window instead of segments.')
 
 args = parser.parse_args()
 args.tied = not args.not_tied
@@ -211,8 +208,7 @@ if args.cuda:
 ###############################################################################
 # Load data
 ###############################################################################
-# if args.dataset in {'reverse', 'copy', 'retrieval', 'retrieval59', 'retrieval59_ext', 'retrieval29_ext'}:
-stack = False if args.dataset in {'sqeq', 'sqeq_d', 'sqeq_cd', 'sqeq_cd_eos'} else True
+stack = False
 tr_iter = data_loader('train', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
                                     tgt_len=args.tgt_len, device=device, stack=stack)
 va_iter = data_loader('val', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
@@ -223,14 +219,6 @@ ntokens = args.ntokens = (tr_iter.src.max() + 1).item()
 
 # # adaptive softmax / embedding
 cutoffs, tie_projs = [], [False]
-# if args.adaptive:
-#     assert args.dataset in ['wt103', 'lm1b']
-#     if args.dataset == 'wt103':
-#         cutoffs = [20000, 40000, 200000]
-#         tie_projs += [True] * len(cutoffs)
-#     elif args.dataset == 'lm1b':
-#         cutoffs = [60000, 100000, 640000]
-#         tie_projs += [False] * len(cutoffs)
 
 ###############################################################################
 # Build the model
@@ -496,7 +484,6 @@ def evaluate(eval_iter):
                 pred_segs.append(preds)
 
             preds = torch.cat(pred_segs)
-            # num_total += args.batch_size * args.answer_size
             num_total += (target_[-args.answer_size:] > 0).float().sum().item()
             num_correct_tf += ((preds[-args.answer_size:] == target_[-args.answer_size:]) & (target_[-args.answer_size:] > 0)).float().sum().item()
             
@@ -518,8 +505,6 @@ def evaluate(eval_iter):
                 a_data_segs = torch.chunk(a_data, a_chunks)
                 a_target_segs = torch.chunk(a_target, a_chunks)
                 
-                # data_src = data_.clone()
-                # target_src = target_.clone()
                 mems, tmp_mems = tuple(), tuple()
                 for data, target in zip(q_data_segs, q_target_segs):
                     if mems is None:
@@ -532,7 +517,6 @@ def evaluate(eval_iter):
                     if model.num_mem_tokens > 0:
                         if model.mem_at_end:
                             pred_hid = hidden[-tgt_len - num_mem:-num_mem]
-                            # mem_tokens_read = hidden[-tgt_len - 2*num_mem:-tgt_len - num_mem]
                             mem_tokens = hidden[-num_mem:]
                         else:
                             pred_hid = hidden[-tgt_len:]
@@ -564,7 +548,6 @@ def evaluate(eval_iter):
                     if model.num_mem_tokens > 0:
                         if model.mem_at_end:
                             pred_hid = hidden[-tgt_len - num_mem:-num_mem]
-                            # mem_tokens_read = hidden[-tgt_len - 2*num_mem:-tgt_len - num_mem]
                             tmp_mem_tokens = hidden[-num_mem:]
                         else:
                             pred_hid = hidden[-tgt_len:]
@@ -599,18 +582,14 @@ def evaluate(eval_iter):
             num_total_answers += args.batch_size
 
     logging(f'|\nSource: {S}\nTarget: {T}\nTeacher forcing: acc:{num_correct_tf/num_total}\nPreds:  {P[:, -1]}\n')
-    # if args.answer_size >= args.tgt_len:
     logging(f'No teacher forcing: acc:{num_correct/num_total}\nPreds:  {target_preds[:, -1].cpu().numpy()}\n')
     accuracy = num_correct / num_total
-    # else:
-    #     accuracy = num_correct_tf / num_total
     
     logging(f'Answer acc:{num_correct_answers/num_total_answers}\n\n')
         
     # Switch back to the training mode
     model.reset_length(args.tgt_len, args.ext_len, args.mem_len)
     model.train()
-#     print('num_correct, num_total', num_correct, num_total)
     return total_loss / total_len, accuracy
 
 
@@ -627,33 +606,12 @@ def train():
     prev_data, prev_target, prev_mems, prev_mem_tokens = [], [], [], []
     for batch, (data_, target_, seq_len) in enumerate(train_iter):
         model.zero_grad()
-        # if mem_tokens is not None:
-        #     mem_tokens = mem_tokens.detach()
-        # elif model.mem_tokens is not None:
-        #     mem_tokens = model.mem_tokens.repeat(1, data_.shape[1], 1)
          
         if args.batch_chunk > 1:
             raise(NotImplementedError)
-            # data_chunks = torch.chunk(data, args.batch_chunk, 1)
-            # target_chunks = torch.chunk(target, args.batch_chunk, 1)
-            # for i in range(args.batch_chunk):
-            #     data_i = data_chunks[i].contiguous()
-            #     target_i = target_chunks[i].contiguous()
-            #     ret = para_model(data_i, target_i, *mems[i], mem_tokens=mem_tokens)
-            #     if para_model.num_mem_tokens not in (0, None):
-            #         mem_tokens, loss, mems[i] = ret[0], ret[1], ret[2:]
-            #     else:
-            #         loss, mems[i] = ret[0], ret[1:]
-            #     loss = loss.float().mean().type_as(loss) / args.batch_chunk
-            #     if args.fp16:
-            #         optimizer.backward(loss)
-            #     else:
-            #         loss.backward()
-            #     train_loss += loss.float().item()
         else:
             data_segs = torch.chunk(data_, data_.shape[0] // args.tgt_len)
             target_segs = torch.chunk(target_, target_.shape[0] // args.tgt_len)
-#             print('data, target ', data_[:, 0], target_[:, 0])
             losses = []
             if model.mem_tokens is not None:
                 mem_tokens = model.mem_tokens.repeat(1, data_.shape[1], 1)
@@ -661,12 +619,10 @@ def train():
             prev_data, prev_target, prev_mems, prev_mem_tokens = [], [], [], []
             for data, target in zip(data_segs, target_segs):
                 if args.mem_backprop_depth > 0:
-#                     raise(NotImplementedError)
                     prev_data = prev_data[-args.mem_backprop_depth:] + [data]
                     prev_target = prev_target[-args.mem_backprop_depth:] + [target]
                     prev_mems = prev_mems[-args.mem_backprop_depth:] + [mems]
                     prev_mem_tokens = prev_mem_tokens[-args.mem_backprop_depth:] + [mem_tokens.detach()]
-#                     mem_tokens.values = prev_mem_tokens[0].clone()
                     mem_tokens = prev_mem_tokens[0]
                     for pd, pt, pm in zip(prev_data[:-1], prev_target[:-1], prev_mems[:-1]):
                         ret = para_model(pd, pt, *pm, mem_tokens=mem_tokens)
@@ -691,7 +647,6 @@ def train():
                 optimizer.backward(loss)
             else:
                 loss.backward()
-#             print(loss.float().item())
             train_loss += loss.float().item()
             
         if args.fp16:

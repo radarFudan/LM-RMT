@@ -3,7 +3,7 @@
 if [[ $1 == 'train' ]]; then
     echo 'Run training...'
     python3 train_synthetic.py \
-        --data ~/x-transformers/data24 \
+        --data ~/bulatov/TXL/data24/data24/ \
         --dataset copy \
         --n_layer 4 \
         --d_model 128 \
@@ -37,18 +37,6 @@ if [[ $1 == 'train' ]]; then
         --multi_gpu\
         --device_ids 0 1\
         --work_dir ../evaluation/noname \
-        ${@:2}
-elif [[ $1 == 'eval' ]]; then
-    echo 'Run evaluation...'
-    python3 eval.py \
-        --cuda \
-        --data ~/x-transformers/data24 \
-        --dataset reverse \
-        --tgt_len 8 \
-        --mem_len 21 \
-        --clamp_len 9 \
-        --same_length \
-        --split test \
         ${@:2}
 else
     echo 'unknown argment 1'
