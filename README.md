@@ -1,34 +1,35 @@
-# Transformer-XL: Attentive Language Models Beyond a Fixed-Length Context
+# Recurrent Memory Transformer
 
-This repository contains the code in both **PyTorch** and **TensorFlow** for our paper
->[Transformer-XL: Attentive Language Models Beyond a Fixed-Length Context](http://arxiv.org/abs/1901.02860)
+# Code. 
 
->Zihang Dai\*, Zhilin Yang\*, Yiming Yang, Jaime Carbonell, Quoc V. Le, Ruslan Salakhutdinov (*: equal contribution)
+Scripts for running language modeling, algorithmic and mathematical experiments are located in pytorch/ folder.
 
->Preprint 2018
+Our code is forked from the Transformer-XL repository https://github.com/kimiyoung/transformer-xl.
+We made changes to the Transformer-XL model in PyTorch scripts to implement Recurrent Memory Transformer.
 
-## TensorFlow
+All experiments results were produced with this repo and we will be publicly available.
 
-- The source code is in the `tf/` folder, supporting (1) single-node multi-gpu training, and (2) multi-host TPU training.
-- Besides the source code, we also provide pretrained "TensorFlow" models with state-of-the-art (SoTA) performances reported in the paper.
-- Please refer to `tf/README.md` for details.
+Raw experiments results:
 
-## PyTorch
-
-- The source code is in the `pytorch/` folder, supporting single-node multi-gpu training via the module `nn.DataParallel`.
-- Please refer to `pytorch/README.md` for details.
-
-## Results
-
-Transformer-XL achieves new state-of-the-art results on multiple language modeling benchmarks. Transformer-XL is also the first to break through the 1.0 barrier on char-level language modeling. Below is a summary.
-
-Method | enwiki8 | text8 | One Billion Word | WT-103 | PTB (w/o finetuning)
--- | -- | -- | -- | -- | -- 
-Previous Best | 1.06 | 1.13 | 23.7 | 20.5 | 55.5
-Transformer-XL | **0.99** | **1.08** | **21.8** | **18.3** | **54.5**
+Results for all experiments are in experiment_results/ folder:
+    - short_synthetic+MT.csv -- experiments with copy/reverse/associative retrieval from figure 4.
+    - long_copy_reverse.csv -- results for sequence length up to 1080 for copy/revers, figure 5a, 5b and 7c.
+    - results_wt103_enwik8_all_parameters.csv -- full set of hyperparameters for enwik8/wt103 runs.
+    - results_wt103_enwik8.csv -- enwik8/wt103 with selected subset of hyperparameters
 
 
+# Data.
 
-## Acknowledgement
+To obtain datasets used in the paper:
 
-A large portion of the `getdata.sh` script comes from the [awd-lstm](https://github.com/salesforce/awd-lstm-lm/) repo. Happy Language Modeling :)
+LM on WT103 and enwik8:
+    - follow the instructions from the Transformer-XL repository.
+
+Copy & Reverse data:
+    - generation/algorithmic.ipynb
+    
+Associative retrieval data:
+    - data generation code: https://github.com/GokuMohandas/fast-weights/blob/539fb10e3c384d5f782af2560bf28631cd0eaa61/fw/data_utils.py
+
+Quadratic equations data:
+    - generation/square_equations.ipynb
