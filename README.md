@@ -1,6 +1,6 @@
 # Recurrent Memory Transformer
 
-## Code 
+## Code
 
 Scripts for running language modeling, algorithmic and mathematical experiments are located in pytorch/ folder.
 
@@ -20,7 +20,6 @@ Results for all experiments are in experiment_results/ folder:
     - results_wt103_enwik8_all_parameters.csv -- full set of hyperparameters for enwik8/wt103 runs.
 
     - results_wt103_enwik8.csv -- enwik8/wt103 with selected subset of hyperparameters.
-
 
 ## Data
 
