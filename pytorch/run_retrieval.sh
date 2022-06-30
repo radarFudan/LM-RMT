@@ -3,7 +3,7 @@
 if [[ $1 == 'train' ]]; then
     echo 'Run training...'
     python3 train_synthetic.py \
-        --data ~/bulatov/TXL/data24/data24/ \
+        --data ../data \
         --dataset retrieval \
         --n_layer 6 \
         --d_model 64 \

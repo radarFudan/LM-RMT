@@ -3,7 +3,7 @@
 if [[ $1 == 'train' ]]; then
     echo 'Run training...'
     python3 train_sqeq.py \
-        --data ../../../TXL/data/sqeq \
+        --data ../data \
         --dataset sqeq_cd \
         --n_layer 6 \
         --d_model 128 \
