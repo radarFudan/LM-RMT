@@ -26,7 +26,7 @@ Classification | (Hyperpartisan) | acc | 94.9 |  | **98.1**
 Scripts for running language modeling, algorithmic and mathematical experiments can be found in the core [pytorch folder](./pytorch/).
 
 Our code is based on the [Transformer-XL repository](https://github.com/kimiyoung/transformer-xl).
-The recurrent memory mechanism is implemented by updating the Transformer-XL PyTorch code.
+The recurrent memory mechanism is implemented by updating the Transformer-XL PyTorch code. For details please refer to the [source readme](https://github.com/kimiyoung/transformer-xl/blob/master/pytorch/README.md).
 
 All LM and algorithmic experiments from our paper were conducted using this repository.
 Raw experiments results from the paper can be found in the [experiments folder](./experiment_results/):
