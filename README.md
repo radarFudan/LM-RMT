@@ -1,4 +1,5 @@
 # Recurrent Memory Transformer
+>https://arxiv.org/abs/2207.06881
 
 >Aydar Bulatov, Yuri Kuratov, Mikhail S. Burtsev
 
