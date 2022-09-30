@@ -6,7 +6,7 @@ RMT is a memory-augmented segment-level recurrent Transformer. It achieves state
 
 Recurrent Memory Transformer is implemented as follows:
 
-![**RMT**](./img/RMT_simple.png)
+![**RMT**](img/RMT_simple.png?raw=True)
 
 We implement our memory mechanism with no changes to Transformer model by adding special memory tokens to the input sequence. The model is trained to control both memory operations and sequence representations processing.
 
