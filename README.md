@@ -18,7 +18,7 @@ LM* | enwik8 | bpc | 1.39 | 1.283 | **1.228**
 step-by-step | qudaratic equations | acc |  | 93.4 | **99.8**
 Classification | (Hyperpartisan) | acc | 94.9 |  | **98.1** 
 
-\* - with input and memory limitations
+\* - limited input and memory size
  
 
 ## Code
@@ -47,7 +47,9 @@ To obtain datasets used in the paper:
 - Quadratic equations data:
   - produced with  `./generation/square_equations.ipynb`
 
+Example usage: 
 
+`bash <script_name>.sh train`
 ## Citation
 If you find our work useful, please cite the [NeurIPS 2022 paper]():
 ```
