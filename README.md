@@ -39,18 +39,34 @@ Raw experiments results from the paper can be found in the [experiments folder](
 
 ## Reproduce results
 
-To obtain datasets used in the paper:
+**Language modeling:**
+  - obtain data using the instructions from the Transformer-XL repository
+  - baseline
+    - `bash run_wt103_base.sh train`
+  - RMT
+    - `bash run_wt103_base.sh train --num_mem_tokens NUM_MEM_TOKENS`
+  - Transformer-XL
+    - `bash run_wt103_base.sh train --mem_len MEM_LEN`
 
-- LM on WT103 and enwik8:
-  - follow the instructions from the Transformer-XL repository.
-- Copy & Reverse data:
-  - produced with `./generation/algorithmic.ipynb`
-- Quadratic equations data:
-  - produced with  `./generation/square_equations.ipynb`
+Similarly can be used with large models on WT103 and base and large models on enwik8.
 
-Example usage: 
+**Algorithmic tasks:**
+- Copy & Reverse:
+  - generate dataset with `./generation/algorithmic.ipynb`
+- Quadratic equations:
+  - generate dataset with  `./generation/square_equations.ipynb`
 
-`bash <script_name>.sh train`
+Run training:
+  - baseline
+    - `bash copy.sh train --tgt_len LEN --eval_tgt_len LEN`
+  - RMT
+    - `bash copy.sh train --num_mem_tokens NUM_MEM_TOKENS --tgt_len LEN --eval_tgt_len LEN`
+  - Transformer-XL
+    - `bash copy.sh train --mem_len MEM_LEN --tgt_len LEN --eval_tgt_len LEN`
+
+Here `LEN` is model input size. For training on reverse / quadratic equations substitute 'copy' with 'reverse' / 'sqeq'.
+
+
 ## Citation
 If you find our work useful, please cite the [NeurIPS 2022 paper]():
 ```
