@@ -12,6 +12,7 @@ sys.path.append('utils')
 from proj_adaptive_softmax import ProjectedAdaptiveLogSoftmax
 from log_uniform_sampler import LogUniformSampler, sample_logits
 
+
 class PositionalEmbedding(nn.Module):
     def __init__(self, demb):
         super(PositionalEmbedding, self).__init__()
@@ -114,9 +115,9 @@ class MultiHeadAttn(nn.Module):
         attn_score.mul_(self.scale)
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score.masked_fill_(attn_mask[None,:,:,None], -float('inf'))
+                attn_score.masked_fill_(attn_mask[None,:,:,None].bool(), -float('inf'))
             elif attn_mask.dim() == 3:
-                attn_score.masked_fill_(attn_mask[:,:,:,None], -float('inf'))
+                attn_score.masked_fill_(attn_mask[:,:,:,None].bool(), -float('inf'))
 
         # [qlen x klen x bsz x n_head]
         attn_prob = F.softmax(attn_score, dim=1)
@@ -261,10 +262,10 @@ class RelPartialLearnableMultiHeadAttn(RelMultiHeadAttn):
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
                 attn_score = attn_score.float().masked_fill(
-                    attn_mask[None,:,:,None], -float('inf')).type_as(attn_score)
+                    attn_mask[None,:,:,None].bool(), -float('inf')).type_as(attn_score)
             elif attn_mask.dim() == 3:
                 attn_score = attn_score.float().masked_fill(
-                    attn_mask[:,:,:,None], -float('inf')).type_as(attn_score)
+                    attn_mask[:,:,:,None].bool(), -float('inf')).type_as(attn_score)
 
         # [qlen x klen x bsz x n_head]
         attn_prob = F.softmax(attn_score, dim=1)
@@ -347,9 +348,9 @@ class RelLearnableMultiHeadAttn(RelMultiHeadAttn):
         #### compute attention probability
         if attn_mask is not None and attn_mask.any().item():
             if attn_mask.dim() == 2:
-                attn_score.masked_fill_(attn_mask[None,:,:,None], -float('inf'))
+                attn_score.masked_fill_(attn_mask[None,:,:,None].bool(), -float('inf'))
             elif attn_mask.dim() == 3:
-                attn_score.masked_fill_(attn_mask[:,:,:,None], -float('inf'))
+                attn_score.masked_fill_(attn_mask[:,:,:,None].bool(), -float('inf'))
 
         # [qlen x klen x bsz x n_head]
         attn_prob = F.softmax(attn_score, dim=1)
@@ -447,19 +448,27 @@ class AdaptiveEmbedding(nn.Module):
         self.cutoff_ends = [0] + self.cutoffs
 
         self.emb_layers = nn.ModuleList()
-        self.emb_projs = nn.ParameterList()
+        self.n_emb_projs = 0
+        # parameter list is not supported by DataParallel
+        # move all parameters from ParameterList to module attributes
+        # self.emb_projs = nn.ParameterList()
         if div_val == 1:
             self.emb_layers.append(
                 nn.Embedding(n_token, d_embed, sparse=sample_softmax>0)
             )
             if d_proj != d_embed:
-                self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_embed)))
+                setattr(self, 'emb_projs_0', nn.Parameter(torch.Tensor(d_proj, d_embed)))
+                self.n_emb_projs += 1
+                # self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_embed)))
         else:
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i+1]
                 d_emb_i = d_embed // (div_val ** i)
                 self.emb_layers.append(nn.Embedding(r_idx-l_idx, d_emb_i))
-                self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
+                # self.emb_projs.append(nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
+                setattr(self, f'emb_projs_{i}', nn.Parameter(torch.Tensor(d_proj, d_emb_i)))
+                self.n_emb_projs += 1
+            
 
     def forward(self, inp):
         if self.div_val == 1:
@@ -467,10 +476,10 @@ class AdaptiveEmbedding(nn.Module):
             if self.d_proj != self.d_embed:
                 embed  = F.linear(embed, self.emb_projs[0])
         else:
-            param = next(self.parameters())
-            inp_flat = inp.view(-1)
+            inp_flat = inp.contiguous().view(-1)
             emb_flat = torch.zeros([inp_flat.size(0), self.d_proj], 
-                dtype=param.dtype, device=param.device)
+                                    dtype=torch.float, 
+                                    device=inp.device)
             for i in range(len(self.cutoffs)):
                 l_idx, r_idx = self.cutoff_ends[i], self.cutoff_ends[i + 1]
 
@@ -482,7 +491,8 @@ class AdaptiveEmbedding(nn.Module):
 
                 inp_i = inp_flat.index_select(0, indices_i) - l_idx
                 emb_i = self.emb_layers[i](inp_i)
-                emb_i = F.linear(emb_i, self.emb_projs[i])
+                # emb_i = F.linear(emb_i, self.emb_projs[i])
+                emb_i = F.linear(emb_i, getattr(self, f'emb_projs_{i}'))
 
                 emb_flat.index_copy_(0, indices_i, emb_i)
 
@@ -497,6 +507,7 @@ class MemTransformerLM(nn.Module):
                  dropout, dropatt, tie_weight=True, d_embed=None, 
                  div_val=1, tie_projs=[False], pre_lnorm=False,
                  tgt_len=None, ext_len=None, mem_len=None, 
+                 num_mem_tokens=None, read_mem_from_cache=False, mem_at_end=True,
                  cutoffs=[], adapt_inp=False,
                  same_length=False, attn_type=0, clamp_len=-1, 
                  sample_softmax=-1):
@@ -519,7 +530,12 @@ class MemTransformerLM(nn.Module):
         self.tgt_len = tgt_len
         self.mem_len = mem_len
         self.ext_len = ext_len
-        self.max_klen = tgt_len + ext_len + mem_len
+        self.num_mem_tokens = num_mem_tokens
+        self.init_mem_tokens()
+        self.read_mem_from_cache = read_mem_from_cache
+        self.mem_at_end = mem_at_end
+
+        self.max_klen = tgt_len + ext_len + mem_len + num_mem_tokens
 
         self.attn_type = attn_type
 
@@ -569,9 +585,10 @@ class MemTransformerLM(nn.Module):
             if tie_projs:
                 for i, tie_proj in enumerate(tie_projs):
                     if tie_proj and div_val == 1 and d_model != d_embed:
-                        self.crit.out_projs[i] = self.word_emb.emb_projs[0]
+                        setattr(self.crit, f'out_projs_{i}', self.word_emb.emb_projs_0)
                     elif tie_proj and div_val != 1:
-                        self.crit.out_projs[i] = self.word_emb.emb_projs[i]
+                        setattr(self.crit, f'out_projs_{i}', getattr(self.word_emb, f'emb_projs_{i}'))
+                        # self.crit.out_projs[i] = getattr(self.word_emb, f'emb_projs_{i}')
 
         self.same_length = same_length
         self.clamp_len = clamp_len
@@ -604,17 +621,25 @@ class MemTransformerLM(nn.Module):
         self.mem_len = mem_len
         self.ext_len = ext_len
 
-    def init_mems(self):
+    def init_mems(self, device):
         if self.mem_len > 0:
             mems = []
-            param = next(self.parameters())
             for i in range(self.n_layer+1):
-                empty = torch.empty(0, dtype=param.dtype, device=param.device)
+                empty = torch.empty(0, dtype=torch.float, device=device)
                 mems.append(empty)
 
             return mems
         else:
             return None
+
+    def init_mem_tokens(self):
+        if self.num_mem_tokens == 0:
+            self.mem_tokens = None
+        else:
+            mem_tokens = [torch.randn(1, self.d_model)] * self.num_mem_tokens
+            mem_tokens = torch.cat(mem_tokens, dim=0).view(self.num_mem_tokens, 1, -1)
+            mem_tokens = torch.nn.Parameter(mem_tokens, requires_grad=True)
+            self.register_parameter(param=mem_tokens, name='mem_tokens')
 
     def _update_mems(self, hids, mems, qlen, mlen):
         # does not deal with None
@@ -633,18 +658,25 @@ class MemTransformerLM(nn.Module):
             end_idx = mlen + max(0, qlen - 0 - self.ext_len)
             beg_idx = max(0, end_idx - self.mem_len)
             for i in range(len(hids)):
-
                 cat = torch.cat([mems[i], hids[i]], dim=0)
                 new_mems.append(cat[beg_idx:end_idx].detach())
 
         return new_mems
 
-    def _forward(self, dec_inp, mems=None):
-        qlen, bsz = dec_inp.size()
+    def _forward(self, dec_inp, mems=None, mem_tokens=None):
 
         word_emb = self.word_emb(dec_inp)
 
         mlen = mems[0].size(0) if mems is not None else 0
+        
+        # Concat with mem_tokens
+        if mem_tokens is not None:
+            word_emb = torch.cat((mem_tokens, word_emb), dim=0)
+            if self.mem_at_end:
+                word_emb = torch.cat((word_emb, mem_tokens), dim=0)
+
+        # qlen, bsz = dec_inp.size()
+        qlen = word_emb.shape[0]
         klen = mlen + qlen
         if self.same_length:
             all_ones = word_emb.new_ones(qlen, klen)
@@ -657,8 +689,16 @@ class MemTransformerLM(nn.Module):
                     + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, None] # -1
         else:
             dec_attn_mask = torch.triu(
-                word_emb.new_ones(qlen, klen), diagonal=1+mlen).byte()[:,:,None]
+                word_emb.new_ones(qlen, klen), diagonal=1+mlen).byte()
 
+            if self.num_mem_tokens != 0:
+                dec_attn_mask[:self.num_mem_tokens, mlen:mlen+self.num_mem_tokens] = 0
+                dec_attn_mask[:self.num_mem_tokens, :mlen] = 1 - int(self.read_mem_from_cache)
+                if self.mem_at_end:
+                    dec_attn_mask[-self.num_mem_tokens:, -self.num_mem_tokens:] = 0
+                    dec_attn_mask[-self.num_mem_tokens:, :mlen] = 1 - int(self.read_mem_from_cache)
+            dec_attn_mask = dec_attn_mask[:,:,None]
+            
         hids = []
         if self.attn_type == 0: # default
             pos_seq = torch.arange(klen-1, -1, -1.0, device=word_emb.device, 
@@ -734,30 +774,46 @@ class MemTransformerLM(nn.Module):
 
         return core_out, new_mems
 
-    def forward(self, data, target, *mems):
+    def forward(self, data, target, *mems, mem_tokens=None):
         # nn.DataParallel does not allow size(0) tensors to be broadcasted.
         # So, have to initialize size(0) mems inside the model forward.
         # Moreover, have to return new_mems to allow nn.DataParallel to piece
         # them together.
-        if not mems: mems = self.init_mems()
+        if not mems: mems = self.init_mems(data.device)
 
         tgt_len = target.size(0)
-        hidden, new_mems = self._forward(data, mems=mems)
+        hidden, new_mems = self._forward(data, mems=mems, mem_tokens=mem_tokens)
 
-        pred_hid = hidden[-tgt_len:]
+        num_mem = self.num_mem_tokens
+        if self.num_mem_tokens > 0:
+            if self.mem_at_end:
+                pred_hid = hidden[-tgt_len - num_mem:-num_mem]
+                # mem_tokens_read = hidden[-tgt_len - 2*num_mem:-tgt_len - num_mem]
+                mem_tokens_write = hidden[-num_mem:]
+            else:
+                pred_hid = hidden[-tgt_len:]
+                mem_tokens_write = hidden[-tgt_len-num_mem:-tgt_len]
+        else:
+            pred_hid = hidden[-tgt_len:]
+
         if self.sample_softmax > 0 and self.training:
             assert self.tie_weight
             logit = sample_logits(self.word_emb,
                 self.out_layer.bias, target, pred_hid, self.sampler)
             loss = -F.log_softmax(logit, -1)[:, :, 0]
         else:
-            loss = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target.view(-1))
+            loss = self.crit(pred_hid.view(-1, pred_hid.size(-1)), target.reshape(-1))
             loss = loss.view(tgt_len, -1)
 
-        if new_mems is None:
-            return [loss]
-        else:
-            return [loss] + new_mems
+        output = [loss]
+
+        if new_mems is not None:
+            output += new_mems
+        if self.num_mem_tokens != 0:
+            output = [mem_tokens_write] + output
+
+        return output
+
 
 if __name__ == '__main__':
     import argparse

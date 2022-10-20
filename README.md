@@ -1,34 +1,73 @@
-# Transformer-XL: Attentive Language Models Beyond a Fixed-Length Context
+# Recurrent Memory Transformer
+>https://arxiv.org/abs/2207.06881
 
-This repository contains the code in both **PyTorch** and **TensorFlow** for our paper
->[Transformer-XL: Attentive Language Models Beyond a Fixed-Length Context](http://arxiv.org/abs/1901.02860)
+>Aydar Bulatov, Yuri Kuratov, Mikhail S. Burtsev
 
->Zihang Dai\*, Zhilin Yang\*, Yiming Yang, Jaime Carbonell, Quoc V. Le, Ruslan Salakhutdinov (*: equal contribution)
+RMT is a memory-augmented segment-level recurrent Transformer. It achieves state-of-the art results on Hyperpartisan dataset and beats Transformer-XL on algorithmic tasks and LM with limited input and memory size.
 
->Preprint 2018
+Recurrent Memory Transformer is implemented as follows:
 
-## TensorFlow
+![**RMT**](img/RMT_simple.png?raw=True)
 
-- The source code is in the `tf/` folder, supporting (1) single-node multi-gpu training, and (2) multi-host TPU training.
-- Besides the source code, we also provide pretrained "TensorFlow" models with state-of-the-art (SoTA) performances reported in the paper.
-- Please refer to `tf/README.md` for details.
+We implement our memory mechanism with no changes to Transformer model by adding special memory tokens to the input sequence. The model is trained to control both memory operations and sequence representations processing.
 
-## PyTorch
-
-- The source code is in the `pytorch/` folder, supporting single-node multi-gpu training via the module `nn.DataParallel`.
-- Please refer to `pytorch/README.md` for details.
-
-## Results
-
-Transformer-XL achieves new state-of-the-art results on multiple language modeling benchmarks. Transformer-XL is also the first to break through the 1.0 barrier on char-level language modeling. Below is a summary.
-
-Method | enwiki8 | text8 | One Billion Word | WT-103 | PTB (w/o finetuning)
+## Performance
+Task | Dataset | Metric | Transformer | Transformer-XL | RMT
 -- | -- | -- | -- | -- | -- 
-Previous Best | 1.06 | 1.13 | 23.7 | 20.5 | 55.5
-Transformer-XL | **0.99** | **1.08** | **21.8** | **18.3** | **54.5**
+LM* | WT-103 | ppl | 29.95 | 24.12 | **23.99**
+LM* | enwik8 | bpc | 1.39 | 1.283 | **1.228**
+step-by-step | qudaratic equations | acc |  | 93.4 | **99.8**
+Classification | (Hyperpartisan) | acc | 94.9 |  | **98.1** 
+
+\* - limited input and memory size
+ 
+
+## Code
+
+Scripts for running language modeling, algorithmic and mathematical experiments can be found in the core [pytorch folder](./pytorch/).
+
+Our code is based on the [Transformer-XL repository](https://github.com/kimiyoung/transformer-xl).
+The recurrent memory mechanism is implemented by updating the Transformer-XL PyTorch code. For details please refer to the [source readme](https://github.com/kimiyoung/transformer-xl/blob/master/pytorch/README.md).
+
+All LM and algorithmic experiments from our paper were conducted using this repository.
+Raw experiments results from the paper can be found in the [experiments folder](./experiment_results/):
+
+- `short_synthetic+MT.csv` -- experiments with copy/reverse/associative retrieval from figure 4.
+- `long_copy_reverse.csv` -- results for sequence length up to 1080 for copy/reverse, figure 5a, 5b and 7c.
+- `results_wt103_enwik8_all_parameters.csv` -- full set of hyperparameters for enwik8/wt103 runs.
+- `results_wt103_enwik8.csv` -- enwik8/wt103 with selected subset of hyperparameters.
+
+## Reproduce results
+
+**Language modeling:**
+  - obtain data using the instructions from the Transformer-XL repository
+  - baseline
+    - `bash run_wt103_base.sh train`
+  - RMT
+    - `bash run_wt103_base.sh train --num_mem_tokens NUM_MEM_TOKENS`
+  - Transformer-XL
+    - `bash run_wt103_base.sh train --mem_len MEM_LEN`
+
+Similarly can be used with large models on WT103 and base and large models on enwik8.
+
+**Algorithmic tasks:**
+- Copy & Reverse:
+  - generate dataset with `./generation/algorithmic.ipynb`
+- Quadratic equations:
+  - generate dataset with  `./generation/square_equations.ipynb`
+
+Run training:
+  - baseline
+    - `bash copy.sh train --tgt_len LEN --eval_tgt_len LEN`
+  - RMT
+    - `bash copy.sh train --num_mem_tokens NUM_MEM_TOKENS --tgt_len LEN --eval_tgt_len LEN`
+  - Transformer-XL
+    - `bash copy.sh train --mem_len MEM_LEN --tgt_len LEN --eval_tgt_len LEN`
+
+Here `LEN` is model input size. For training on reverse / quadratic equations substitute 'copy' with 'reverse' / 'sqeq'.
 
 
-
-## Acknowledgement
-
-A large portion of the `getdata.sh` script comes from the [awd-lstm](https://github.com/salesforce/awd-lstm-lm/) repo. Happy Language Modeling :)
+## Citation
+If you find our work useful, please cite the [NeurIPS 2022 paper]():
+```
+@article{}

@@ -11,16 +11,19 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from data_utils import get_lm_corpus
+# from data_utils import get_lm_corpus
+from experiment_utils.generate_data import data_loader
 from mem_transformer import MemTransformerLM
 from utils.exp_utils import create_exp_dir
 from utils.data_parallel import BalancedDataParallel
 
+datasets = ['reverse', 'copy', 'retrieval', 'retrieval59', 'retrieval59_ext', 'retrieval29_ext', 'copy120', 'reverse120']
+
 parser = argparse.ArgumentParser(description='PyTorch Transformer Language Model')
 parser.add_argument('--data', type=str, default='../data/wikitext-103',
                     help='location of the data corpus')
-parser.add_argument('--dataset', type=str, default='wt103',
-                    choices=['wt103', 'lm1b', 'enwik8', 'text8'],
+parser.add_argument('--dataset', type=str, default='reverse',
+                    choices=datasets,
                     help='dataset name')
 parser.add_argument('--n_layer', type=int, default=12,
                     help='number of total layers')
@@ -156,6 +159,8 @@ parser.add_argument('--log_interval', type=int, default=200,
                     help='Log period in batches')
 parser.add_argument('--eval_interval', type=int, default=8000,
                     help='Evaluation period in batches')
+parser.add_argument('--answer_size', type=int, default=24,
+                    help='How many last tokens in segment to use for loss.')
 
 args = parser.parse_args()
 args.tied = not args.not_tied
@@ -174,7 +179,7 @@ assert args.batch_size % args.batch_chunk == 0
 args.work_dir = '{}-{}'.format(args.work_dir, args.dataset)
 args.work_dir = os.path.join(args.work_dir, time.strftime('%Y%m%d-%H%M%S'))
 logging = create_exp_dir(args.work_dir,
-    scripts_to_save=['train.py', 'mem_transformer.py'], debug=args.debug)
+    scripts_to_save=['train.py', 'mem_transformer.py', 'train_synthetic.py'], debug=args.debug)
 
 # Set the random seed manually for reproducibility.
 np.random.seed(args.seed)
@@ -204,28 +209,25 @@ if args.cuda:
 ###############################################################################
 # Load data
 ###############################################################################
-corpus = get_lm_corpus(args.data, args.dataset)
-ntokens = len(corpus.vocab)
-args.n_token = ntokens
+# if args.dataset in {'reverse', 'copy', 'retrieval', 'retrieval59', 'retrieval59_ext', 'retrieval29_ext'}:
+tr_iter = data_loader('train', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
+                                    tgt_len=args.tgt_len, device=device)
+va_iter = data_loader('val', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
+                                    tgt_len=args.tgt_len, device=device)
+te_iter = data_loader('test', path=args.data, task_name=args.dataset, batch_size=args.batch_size,
+                                    tgt_len=args.tgt_len, device=device)
+ntokens = args.ntokens = (tr_iter.src.max() + 1).item()
 
-eval_batch_size = 10
-tr_iter = corpus.get_iterator('train', args.batch_size, args.tgt_len,
-    device=device, ext_len=args.ext_len)
-va_iter = corpus.get_iterator('valid', eval_batch_size, args.eval_tgt_len,
-    device=device, ext_len=args.ext_len)
-te_iter = corpus.get_iterator('test', eval_batch_size, args.eval_tgt_len,
-    device=device, ext_len=args.ext_len)
-
-# adaptive softmax / embedding
+# # adaptive softmax / embedding
 cutoffs, tie_projs = [], [False]
-if args.adaptive:
-    assert args.dataset in ['wt103', 'lm1b']
-    if args.dataset == 'wt103':
-        cutoffs = [20000, 40000, 200000]
-        tie_projs += [True] * len(cutoffs)
-    elif args.dataset == 'lm1b':
-        cutoffs = [60000, 100000, 640000]
-        tie_projs += [False] * len(cutoffs)
+# if args.adaptive:
+#     assert args.dataset in ['wt103', 'lm1b']
+#     if args.dataset == 'wt103':
+#         cutoffs = [20000, 40000, 200000]
+#         tie_projs += [True] * len(cutoffs)
+#     elif args.dataset == 'lm1b':
+#         cutoffs = [60000, 100000, 640000]
+#         tie_projs += [False] * len(cutoffs)
 
 ###############################################################################
 # Build the model
@@ -424,30 +426,176 @@ def evaluate(eval_iter):
 
     # Evaluation
     total_len, total_loss = 0, 0.
-    mem_tokens = None
+    num_correct, num_correct_tf, num_total = 0, 0, 0
     with torch.no_grad():
         mems = tuple()  
-        for i, (data, target, seq_len) in enumerate(eval_iter):
+        for i, (data_, target_, seq_len) in enumerate(eval_iter):
+            if data_.shape[1] < args.batch_size:
+                print('maslina')
+                continue
             if args.max_eval_steps > 0 and i >= args.max_eval_steps:
                 break
-            if (mem_tokens is None) and (model.mem_tokens is not None):
-                mem_tokens = model.mem_tokens.repeat(1, data.shape[1], 1)
+            mem_tokens = None
+            if model.mem_tokens is not None:
+                mem_tokens = model.mem_tokens.repeat(1, data_.shape[1], 1)
 
-            ret = model(data, target, *mems, mem_tokens=mem_tokens)
-            if model.num_mem_tokens == 0:
-                loss, mems = ret[0], ret[1:]
-            else:
-                mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
+            data_segs = torch.chunk(data_, data_.shape[0] // args.tgt_len)
+            target_segs = torch.chunk(target_, target_.shape[0] // args.tgt_len)
+#             print('data segs, ', [s.shape for s in data_segs])
+            losses = []
+        
+        # caclulate loss
+            for data, target in zip(data_segs, target_segs):
+                if mems is None:
+                    mems = tuple()
+#                 print('Mems: ', [m.shape for m in mems])
+#                 print('data, target', data.shape, target.shape)
+                ret = para_model(data, target, *mems, mem_tokens=mem_tokens)
+                if model.num_mem_tokens == 0:
+                    loss, mems = ret[0], ret[1:]
+                else:
+                    mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
+                losses.append(loss)
 
+            loss = torch.cat(losses)
+            loss = loss[-args.answer_size:]
             loss = loss.mean()
-            total_loss += seq_len * loss.float().item()
-            total_len += seq_len
+            total_loss += args.answer_size * loss.float().item()
+            total_len += args.answer_size
 
+        # with teacher forcing
+            mem_tokens = None
+            if model.mem_tokens is not None:
+                mem_tokens = model.mem_tokens.repeat(1, data_.shape[1], 1)
+
+            pred_segs = []
+            mems = tuple()    
+            for data, target in zip(data_segs, target_segs):
+                if mems is None:
+                    mems = tuple()
+                if not mems: mems = model.init_mems(data.device)
+
+                tgt_len = target.size(0)
+                hidden, mems = model._forward(data, mems=mems, mem_tokens=mem_tokens)
+                num_mem = model.num_mem_tokens
+                if model.num_mem_tokens > 0:
+                    if model.mem_at_end:
+                        pred_hid = hidden[-tgt_len - num_mem:-num_mem]
+                        # mem_tokens_read = hidden[-tgt_len - 2*num_mem:-tgt_len - num_mem]
+                        mem_tokens = hidden[-num_mem:]
+                    else:
+                        pred_hid = hidden[-tgt_len:]
+                        mem_tokens = hidden[-tgt_len-num_mem:-tgt_len]
+                else:
+                    pred_hid = hidden[-tgt_len:]
+
+                logit = model.crit._compute_logit(pred_hid, model.crit.out_layers[0].weight,
+                                        model.crit.out_layers[0].bias, model.crit.out_projs_0)
+                logit = torch.nn.functional.softmax(logit, dim=-1)
+                preds = logit.argmax(dim=-1)
+                pred_segs.append(preds)
+
+            preds = torch.cat(pred_segs)
+            num_total += args.batch_size * args.answer_size
+            num_correct_tf += (preds[-args.answer_size:] == target_[-args.answer_size:]).float().sum().item()
+            
+            S, T, P = data_[:, -1].cpu().numpy(), target_[:, -1].cpu().numpy(), preds.cpu().numpy()
+
+        # no teacher forcing
+            if args.answer_size < args.tgt_len:
+                continue
+            mem_tokens, tmp_mem_tokens = None, None
+            if model.mem_tokens is not None:
+                mem_tokens = model.mem_tokens.repeat(1, data_.shape[1], 1)
+            
+#             if args.answer_size >= args.tgt_len:
+            q_data, q_target = data_[:-args.answer_size].clone(), target_[:-args.answer_size].clone()
+            a_data, a_target = data_[-args.answer_size:].clone(), target_[-args.answer_size:].clone()
+
+            q_chunks = q_data.shape[0] // args.tgt_len
+            a_chunks = max((a_data.shape[0] // args.tgt_len, 1))
+            q_data_segs = torch.chunk(q_data, q_chunks)
+            q_target_segs = torch.chunk(q_target, q_chunks)
+            a_data_segs = torch.chunk(a_data, a_chunks)
+            a_target_segs = torch.chunk(a_target, a_chunks)
+            
+            # data_src = data_.clone()
+            # target_src = target_.clone()
+            mems, tmp_mems = tuple(), tuple()
+            for data, target in zip(q_data_segs, q_target_segs):
+                if mems is None:
+                    mems = tuple()
+                if not mems: mems = model.init_mems(data.device)
+
+                tgt_len = target.size(0)
+                hidden, mems = model._forward(data, mems=mems, mem_tokens=mem_tokens)
+                num_mem = model.num_mem_tokens
+                if model.num_mem_tokens > 0:
+                    if model.mem_at_end:
+                        pred_hid = hidden[-tgt_len - num_mem:-num_mem]
+                        # mem_tokens_read = hidden[-tgt_len - 2*num_mem:-tgt_len - num_mem]
+                        mem_tokens = hidden[-num_mem:]
+                    else:
+                        pred_hid = hidden[-tgt_len:]
+                        mem_tokens = hidden[-tgt_len-num_mem:-tgt_len]
+            
+            target_preds = list(q_target_segs)
+            for data, target in zip(a_data_segs, a_target_segs):
+                for token_ind in range(args.tgt_len):
+                    if mems is None:
+                        mems = tuple()
+                    if not mems: mems = model.init_mems(data.device)
+
+                    tgt_len = target.size(0)
+                    tmp_mems = mems
+                    hidden, tmp_mems = model._forward(data, mems=tmp_mems, mem_tokens=mem_tokens)
+                    num_mem = model.num_mem_tokens
+                    if model.num_mem_tokens > 0:
+                        if model.mem_at_end:
+                            pred_hid = hidden[-tgt_len - num_mem:-num_mem]
+                            # mem_tokens_read = hidden[-tgt_len - 2*num_mem:-tgt_len - num_mem]
+                            tmp_mem_tokens = hidden[-num_mem:]
+                        else:
+                            pred_hid = hidden[-tgt_len:]
+                            tmp_mem_tokens = hidden[-tgt_len-num_mem:-tgt_len]
+                    else:
+                        pred_hid = hidden[-tgt_len:]
+
+                    logit = model.crit._compute_logit(pred_hid, model.crit.out_layers[0].weight,
+                                            model.crit.out_layers[0].bias, model.crit.out_projs_0)
+                    logit = torch.nn.functional.softmax(logit[token_ind], dim=-1)
+                    preds = logit.argmax(dim=1)
+                    
+                    target[token_ind] = preds
+#                     if i==0:
+#                         print('tgt', target[:, 0])
+                    if token_ind < args.tgt_len - 1:
+                        data[token_ind + 1] = preds
+
+                mems = tmp_mems
+                mem_tokens = tmp_mem_tokens
+#                 if i==0:
+#                     print('total target', target, '\n'*10)
+                target_preds.append(target)
+
+            target_preds = torch.cat(target_preds)
+#             print('target_preds, target_', target_preds[-args.answer_size:] , target_[-args.answer_size:] )
+            correct = (target_preds[-args.answer_size:] == target_[-args.answer_size:]).sum().item()
+#             print(correct)
+            num_correct += correct
+
+    logging(f'|\nSource: {S}\nTarget: {T}\nTeacher forcing: acc:{num_correct_tf/num_total}\nPreds:  {P[:, -1]}\n')
+    if args.answer_size >= args.tgt_len:
+        logging(f'No teacher forcing: acc:{num_correct/num_total}\nPreds:  {target_preds[:, -1].cpu().numpy()}\n\n')
+        accuracy = num_correct / num_total
+    else:
+        accuracy = num_correct_tf / num_total
+        
     # Switch back to the training mode
     model.reset_length(args.tgt_len, args.ext_len, args.mem_len)
     model.train()
-
-    return total_loss / total_len
+#     print('num_correct, num_total', num_correct, num_total)
+    return total_loss / total_len, accuracy
 
 
 def train():
@@ -461,12 +609,12 @@ def train():
     train_iter = tr_iter.get_varlen_iter() if args.varlen else tr_iter
     mem_tokens = None
     prev_data, prev_target, prev_mems, prev_mem_tokens = [], [], [], []
-    for batch, (data, target, seq_len) in enumerate(train_iter):
+    for batch, (data_, target_, seq_len) in enumerate(train_iter):
         model.zero_grad()
-        if mem_tokens is not None:
-            mem_tokens = mem_tokens.detach()
-        elif model.mem_tokens is not None:
-            mem_tokens = model.mem_tokens.repeat(1, data.shape[1], 1)
+        # if mem_tokens is not None:
+        #     mem_tokens = mem_tokens.detach()
+        # elif model.mem_tokens is not None:
+        #     mem_tokens = model.mem_tokens.repeat(1, data_.shape[1], 1)
          
         if args.batch_chunk > 1:
             raise(NotImplementedError)
@@ -487,33 +635,47 @@ def train():
             #         loss.backward()
             #     train_loss += loss.float().item()
         else:
-            if args.mem_backprop_depth > 0:
-                prev_data = prev_data[-args.mem_backprop_depth:] + [data]
-                prev_target = prev_target[-args.mem_backprop_depth:] + [target]
-                prev_mems = prev_mems[-args.mem_backprop_depth:] + [mems]
-                prev_mem_tokens = prev_mem_tokens[-args.mem_backprop_depth:] + [mem_tokens.detach()]
-                mem_tokens.values = prev_mem_tokens[0].clone()
-                for pd, pt, pm in zip(prev_data[:-1], prev_target[:-1], prev_mems[:-1]):
-                    ret = para_model(pd, pt, *pm, mem_tokens=mem_tokens)
-                    mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
-                    if args.bptt_bp:
-                        loss = loss.float().mean().type_as(loss)
-                        if args.fp16:
-                            raise(NotImplementedError)
-                        else:
-                            loss.backward(retain_graph=True)
+            data_segs = torch.chunk(data_, data_.shape[0] // args.tgt_len)
+            target_segs = torch.chunk(target_, target_.shape[0] // args.tgt_len)
+#             print('data, target ', data_[:, 0], target_[:, 0])
+            losses = []
+            if model.mem_tokens is not None:
+                mem_tokens = model.mem_tokens.repeat(1, data_.shape[1], 1)
             
-            print(para_model.module.layers[0].dec_attn.qkv_net.weight)
-            ret = para_model(data, target, *mems, mem_tokens=mem_tokens)
-            if model.num_mem_tokens == 0:
-                loss, mems = ret[0], ret[1:]
-            else:
-                mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
+            prev_data, prev_target, prev_mems, prev_mem_tokens = [], [], [], []
+            for data, target in zip(data_segs, target_segs):
+                if args.mem_backprop_depth > 0:
+#                     raise(NotImplementedError)
+                    prev_data = prev_data[-args.mem_backprop_depth:] + [data]
+                    prev_target = prev_target[-args.mem_backprop_depth:] + [target]
+                    prev_mems = prev_mems[-args.mem_backprop_depth:] + [mems]
+                    prev_mem_tokens = prev_mem_tokens[-args.mem_backprop_depth:] + [mem_tokens.detach()]
+#                     mem_tokens.values = prev_mem_tokens[0].clone()
+                    mem_tokens = prev_mem_tokens[0]
+                    for pd, pt, pm in zip(prev_data[:-1], prev_target[:-1], prev_mems[:-1]):
+                        ret = para_model(pd, pt, *pm, mem_tokens=mem_tokens)
+                        if model.num_mem_tokens == 0:
+                            loss, mems = ret[0], ret[1:]
+                        else:
+                            mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
+                        if args.bptt_bp:
+                            raise(NotImplementedError)
+                
+                ret = para_model(data, target, *mems, mem_tokens=mem_tokens)
+                if model.num_mem_tokens == 0:
+                    loss, mems = ret[0], ret[1:]
+                else:
+                    mem_tokens, loss, mems = ret[0], ret[1], ret[2:]
+                losses.append(loss)
+
+            loss = torch.cat(losses)
+            loss = loss[-args.answer_size:]
             loss = loss.float().mean().type_as(loss)
             if args.fp16:
                 optimizer.backward(loss)
             else:
                 loss.backward()
+#             print(loss.float().item())
             train_loss += loss.float().item()
             
         if args.fp16:
@@ -546,7 +708,7 @@ def train():
             cur_loss = train_loss / args.log_interval
             elapsed = time.time() - log_start_time
             log_str = '| epoch {:3d} step {:>8d} | {:>6d} batches | lr {:.3g} ' \
-                      '| ms/batch {:5.2f} | loss {:5.2f}'.format(
+                      '| ms/batch {:5.5f} | loss {:5.5f}'.format(
                 epoch, train_step, batch+1, optimizer.param_groups[0]['lr'],
                 elapsed * 1000 / args.log_interval, cur_loss)
             if args.dataset in ['enwik8', 'text8']:
@@ -558,16 +720,17 @@ def train():
             log_start_time = time.time()
 
         if train_step % args.eval_interval == 0:
-            val_loss = evaluate(va_iter)
+            val_loss, val_acc = evaluate(va_iter)
             logging('-' * 100)
             log_str = '| Eval {:3d} at step {:>8d} | time: {:5.2f}s ' \
-                      '| valid loss {:5.2f}'.format(
+                      '| valid loss {:5.5f}'.format(
                 train_step // args.eval_interval, train_step,
                 (time.time() - eval_start_time), val_loss)
             if args.dataset in ['enwik8', 'text8']:
                 log_str += ' | bpc {:9.5f}'.format(val_loss / math.log(2))
             else:
-                log_str += ' | valid ppl {:9.3f}'.format(math.exp(val_loss))
+                log_str += ' | valid ppl {:9.4f}'.format(math.exp(val_loss))
+            log_str += ' | valid acc {}'.format(round(val_acc, 3))
             logging(log_str)
             logging('-' * 100)
             # Save the model if the validation loss is the best we've seen so far.
@@ -616,12 +779,13 @@ with open(os.path.join(args.work_dir, 'model.pt'), 'rb') as f:
 para_model = model.to(device)
 
 # Run on test data.
-test_loss = evaluate(te_iter)
+test_loss, test_acc = evaluate(te_iter)
 logging('=' * 100)
 if args.dataset in ['enwik8', 'text8']:
-    logging('| End of training | test loss {:5.2f} | test bpc {:9.5f}'.format(
+    logging('| End of training | test loss {:5.5f} | test bpc {:9.5f}'.format(
         test_loss, test_loss / math.log(2)))
 else:
-    logging('| End of training | test loss {:5.2f} | test ppl {:9.3f}'.format(
+    logging('| End of training | test loss {:5.5f} | test ppl {:9.5f}'.format(
         test_loss, math.exp(test_loss)))
+logging(' | test acc {}'.format(round(test_acc, 3)))
 logging('=' * 100)
